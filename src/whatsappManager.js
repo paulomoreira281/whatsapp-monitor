@@ -2,8 +2,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   DisconnectReason,
-  Browsers,
-  makeInMemoryStore
+  Browsers
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode';
 import pino from 'pino';
@@ -12,9 +11,6 @@ const logger = pino({ level: 'info' });
 
 // Armazenar sockets ativos para enviar mensagens posteriormente
 const activeSockets = new Map();
-
-// Stores para cada sessão (armazenar histórico e contatos)
-const stores = new Map();
 
 export async function initWhatsAppManager(io) {
   const sessions = [1, 2, 3, 4];
@@ -33,22 +29,14 @@ async function createSession(id, io) {
   const { state, saveCreds } = await useMultiFileAuthState(folder);
   const { version } = await fetchLatestBaileysVersion();
 
-  // Criar store para armazenar histórico e contatos
-  const store = makeInMemoryStore({ logger: pino({ level: 'silent' }) });
-  stores.set(id, store);
-
   const sock = makeWASocket({
     auth: state,
     version,
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }), // menos logs no terminal
     browser: Browsers.windows('Desktop'),
-    markOnlineOnConnect: true,
-    syncFullHistory: true // Sincronizar histórico completo
+    markOnlineOnConnect: true
   });
-
-  // Conectar store ao socket para armazenar mensagens e contatos
-  store.bind(sock.ev);
 
   // Armazenar socket ativo
   activeSockets.set(id, sock);
@@ -84,8 +72,8 @@ async function createSession(id, io) {
 
       // Enviar histórico de conversas após conectar
       setTimeout(async () => {
-        await loadChatHistory(id, sock, store, io);
-      }, 3000);
+        await loadChatHistory(id, sock, io);
+      }, 5000);
     }
 
     if (connection === 'close') {
@@ -113,9 +101,22 @@ async function createSession(id, io) {
     }
   });
 
-  sock.ev.on('messages.upsert', (m) => {
-    const messages = m.messages.map(msg => {
-      const contactName = getContactName(store, msg.key.remoteJid);
+  sock.ev.on('messages.upsert', async (m) => {
+    const messages = await Promise.all(m.messages.map(async msg => {
+      let contactName = null;
+
+      // Tentar obter nome do contato
+      if (msg.key.remoteJid && !msg.key.fromMe) {
+        try {
+          const contact = await sock.onWhatsApp(msg.key.remoteJid);
+          if (contact && contact[0]) {
+            contactName = contact[0].notify || msg.pushName || null;
+          }
+        } catch (err) {
+          // Usar pushName como fallback
+          contactName = msg.pushName || null;
+        }
+      }
 
       return {
         key: msg.key,
@@ -128,7 +129,7 @@ async function createSession(id, io) {
         timestamp: msg.messageTimestamp,
         contactName: contactName // Nome do contato salvo
       };
-    });
+    }));
 
     // forward messages to UI
     io.emit('message', { id, messages });
@@ -136,79 +137,22 @@ async function createSession(id, io) {
     logger.info({ id, count: messages.length }, 'messages received');
   });
 
-  // Listener para contatos (quando sincronizar)
-  sock.ev.on('contacts.update', (contacts) => {
-    io.emit('contacts', { id, contacts });
-  });
-
   // Export socket on memory in case we want to use later
   return sock;
 }
 
 // Função para carregar histórico de conversas
-async function loadChatHistory(id, sock, store, io) {
+async function loadChatHistory(id, sock, io) {
   try {
-    // Obter todos os chats
-    const chats = store.chats.all();
+    logger.info({ id }, 'Loading chat history...');
 
-    logger.info({ id, chatsCount: chats.length }, 'Loading chat history');
+    // Buscar conversas recentes diretamente
+    const chats = await sock.groupFetchAllParticipating().catch(() => ({}));
 
-    for (const chat of chats.slice(0, 50)) { // Limitar a 50 conversas mais recentes
-      try {
-        // Buscar mensagens do chat
-        const messages = await sock.fetchMessagesFromWA(
-          chat.id,
-          50, // Limitar a 50 mensagens por conversa
-          null
-        );
+    logger.info({ id, chatsCount: Object.keys(chats).length }, 'Chats found');
 
-        if (messages && messages.length > 0) {
-          const formattedMessages = messages.map(msg => {
-            const contactName = getContactName(store, msg.key.remoteJid);
-
-            return {
-              key: msg.key,
-              messageType: Object.keys(msg.message || {})[0],
-              text: msg.message?.conversation ||
-                    msg.message?.extendedTextMessage?.text ||
-                    '[Media/Other]',
-              from: msg.key.remoteJid,
-              fromMe: msg.key.fromMe,
-              timestamp: msg.messageTimestamp,
-              contactName: contactName,
-              isHistory: true // Marcar como histórico
-            };
-          });
-
-          // Enviar histórico para UI
-          io.emit('chat-history', {
-            id,
-            chatId: chat.id,
-            messages: formattedMessages.reverse() // Ordem cronológica
-          });
-        }
-      } catch (err) {
-        logger.error({ err, chatId: chat.id }, 'Error loading chat history');
-      }
-    }
-
-    logger.info({ id }, 'Chat history loaded');
+    io.emit('history-loaded', { id, count: Object.keys(chats).length });
   } catch (err) {
     logger.error({ err, id }, 'Error loading chat history');
   }
-}
-
-// Função para obter nome do contato
-function getContactName(store, jid) {
-  if (!jid) return null;
-
-  // Buscar contato no store
-  const contact = store.contacts[jid];
-
-  if (contact) {
-    // Prioridade: notify (nome salvo) > name > verifiedName
-    return contact.notify || contact.name || contact.verifiedName || null;
-  }
-
-  return null;
 }
