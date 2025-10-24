@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WhatsApp Monitor — 4 Contas</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- Tabs para alternar entre contas -->
+    <div class="accounts-tabs">
+      <button class="account-tab active" data-account="1">📱 Conta 1</button>
+      <button class="account-tab" data-account="2">📱 Conta 2</button>
+      <button class="account-tab" data-account="3">📱 Conta 3</button>
+      <button class="account-tab" data-account="4">📱 Conta 4</button>
+    </div>
+
+    <!-- Container para cada conta (estilo WhatsApp Web) -->
+    <div id="accounts-container">
+      <!-- Conta 1 -->
+      <div class="whatsapp-container" id="account-1" style="display: flex;">
+        <!-- Sidebar: Lista de conversas -->
+        <div class="sidebar">
+          <div class="sidebar-header">
+            <div class="account-info">
+              <div class="account-avatar">1</div>
+              <div class="account-details">
+                <div class="account-name" id="account-name-1">Conta 1</div>
+                <div class="account-status" id="account-status-1">Desconectado</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="qr-section" id="qr-section-1">
+            <h3>Conectar WhatsApp</h3>
+            <div class="qr-code" id="qr-1">
+              <span>Aguardando QR Code...</span>
+            </div>
+            <p class="qr-instructions">Escaneie o QR Code com seu WhatsApp</p>
+          </div>
+
+          <div class="conversations-list" id="conversations-1" style="display: none;">
+            <div class="conversations-header">
+              <h3>Conversas</h3>
+            </div>
+            <div class="conversations-items" id="conversations-items-1">
+              <!-- Conversas aparecerão aqui -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Main: Área de chat -->
+        <div class="chat-area">
+          <div class="chat-placeholder" id="chat-placeholder-1">
+            <div class="placeholder-content">
+              <h2>WhatsApp Monitor</h2>
+              <p>Selecione uma conversa para começar a visualizar mensagens</p>
+              <p class="placeholder-hint">As mensagens recebidas aparecerão automaticamente na lista à esquerda</p>
+            </div>
+          </div>
+
+          <div class="chat-active" id="chat-active-1" style="display: none;">
+            <!-- Header do chat -->
+            <div class="chat-header">
+              <div class="chat-contact-info">
+                <div class="contact-avatar" id="contact-avatar-1"></div>
+                <div class="contact-details">
+                  <div class="contact-name" id="contact-name-1"></div>
+                  <div class="contact-number" id="contact-number-1"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mensagens do chat -->
+            <div class="chat-messages" id="chat-messages-1">
+              <!-- Mensagens aparecerão aqui -->
+            </div>
+
+            <!-- Input de mensagem -->
+            <div class="chat-input">
+              <input type="text" id="chat-input-field-1" placeholder="Digite uma mensagem" />
+              <button class="send-button" id="send-button-1">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                  <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contas 2, 3, 4 terão estrutura idêntica (geradas via JS) -->
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/client.js"></script>
+  </body>
+</html>

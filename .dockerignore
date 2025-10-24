@@ -1,0 +1,10 @@
+node_modules/
+sessions/
+*.log
+npm-debug.log*
+.env
+.git/
+.gitignore
+README.md
+.vscode/
+.idea/

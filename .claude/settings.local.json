@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(timeout 5 node:*)",
+      "Bash(tree:*)",
+      "Bash(npm start)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(git add:*)",
+      "Read(//c/Users/Usuario/Desktop/VS Code/**)",
+      "Bash(git init:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
