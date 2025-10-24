@@ -266,9 +266,6 @@ socket.on('message', (data) => {
   const { id, messages } = data;
 
   messages.forEach(msg => {
-    // Não processar mensagens enviadas por mim
-    if (msg.fromMe) return;
-
     const phoneNumber = msg.from.split('@')[0];
     const account = state.accounts[id];
     const contactName = msg.contactName || null;
@@ -286,8 +283,10 @@ socket.on('message', (data) => {
 
       createConversationItem(id, phoneNumber, contactName);
 
-      // Incrementar contador de novas conversas
-      incrementUnreadBadge(id);
+      // Incrementar contador de novas conversas apenas se não for de mim
+      if (!msg.fromMe) {
+        incrementUnreadBadge(id);
+      }
     }
 
     // Adicionar mensagem à conversa
@@ -300,8 +299,8 @@ socket.on('message', (data) => {
       account.conversations[phoneNumber].name = contactName;
     }
 
-    // Se não está com chat aberto, incrementar não lidas
-    if (account.activeChat !== phoneNumber) {
+    // Se não está com chat aberto, incrementar não lidas (apenas se não for minha)
+    if (account.activeChat !== phoneNumber && !msg.fromMe) {
       account.conversations[phoneNumber].unreadCount++;
       incrementUnreadBadge(id);
     }
@@ -461,9 +460,27 @@ function addMessageToChat(sessionId, message, shouldScroll = true) {
   const chatContainer = document.getElementById(`chat-messages-${sessionId}`);
   const messageType = message.fromMe ? 'sent' : 'received';
 
+  // Adicionar ícone de tipo de mídia se não for texto
+  let mediaIcon = '';
+  if (message.messageType === 'image') {
+    mediaIcon = '📷 ';
+  } else if (message.messageType === 'video') {
+    mediaIcon = '🎥 ';
+  } else if (message.messageType === 'audio') {
+    mediaIcon = '🎵 ';
+  } else if (message.messageType === 'document') {
+    mediaIcon = '📄 ';
+  } else if (message.messageType === 'sticker') {
+    mediaIcon = '🎨 ';
+  } else if (message.messageType === 'contact') {
+    mediaIcon = '👤 ';
+  } else if (message.messageType === 'location') {
+    mediaIcon = '📍 ';
+  }
+
   const messageHTML = `
     <div class="message-bubble ${messageType}">
-      <div class="message-text">${escapeHtml(message.text)}</div>
+      <div class="message-text">${mediaIcon}${escapeHtml(message.text)}</div>
       <div class="message-meta">
         <span class="message-time">${formatTime(message.timestamp)}</span>
         ${message.fromMe ? '<span class="message-checks">✓✓</span>' : ''}

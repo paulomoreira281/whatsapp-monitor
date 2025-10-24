@@ -108,22 +108,54 @@ async function createSession(id, io) {
       // Tentar obter nome do contato
       if (msg.key.remoteJid && !msg.key.fromMe) {
         try {
-          const contact = await sock.onWhatsApp(msg.key.remoteJid);
-          if (contact && contact[0]) {
-            contactName = contact[0].notify || msg.pushName || null;
-          }
+          contactName = msg.pushName || msg.verifiedBizName || null;
         } catch (err) {
-          // Usar pushName como fallback
-          contactName = msg.pushName || null;
+          contactName = null;
+        }
+      }
+
+      // Extrair texto da mensagem dependendo do tipo
+      let text = '';
+      let messageType = 'text';
+
+      if (msg.message) {
+        if (msg.message.conversation) {
+          text = msg.message.conversation;
+          messageType = 'text';
+        } else if (msg.message.extendedTextMessage) {
+          text = msg.message.extendedTextMessage.text;
+          messageType = 'text';
+        } else if (msg.message.imageMessage) {
+          text = msg.message.imageMessage.caption || '📷 Imagem';
+          messageType = 'image';
+        } else if (msg.message.videoMessage) {
+          text = msg.message.videoMessage.caption || '🎥 Vídeo';
+          messageType = 'video';
+        } else if (msg.message.audioMessage) {
+          text = '🎵 Áudio';
+          messageType = 'audio';
+        } else if (msg.message.documentMessage) {
+          text = `📄 ${msg.message.documentMessage.fileName || 'Documento'}`;
+          messageType = 'document';
+        } else if (msg.message.stickerMessage) {
+          text = '🎨 Figurinha';
+          messageType = 'sticker';
+        } else if (msg.message.contactMessage) {
+          text = `👤 Contato: ${msg.message.contactMessage.displayName || 'Contato'}`;
+          messageType = 'contact';
+        } else if (msg.message.locationMessage) {
+          text = '📍 Localização';
+          messageType = 'location';
+        } else {
+          text = '[Mensagem não suportada]';
+          messageType = 'other';
         }
       }
 
       return {
         key: msg.key,
-        messageType: Object.keys(msg.message || {})[0],
-        text: msg.message?.conversation ||
-              msg.message?.extendedTextMessage?.text ||
-              '[Media/Other]',
+        messageType: messageType,
+        text: text,
         from: msg.key.remoteJid,
         fromMe: msg.key.fromMe,
         timestamp: msg.messageTimestamp,
@@ -131,7 +163,7 @@ async function createSession(id, io) {
       };
     }));
 
-    // forward messages to UI
+    // forward messages to UI (incluindo mensagens enviadas por mim)
     io.emit('message', { id, messages });
 
     logger.info({ id, count: messages.length }, 'messages received');
@@ -146,12 +178,63 @@ async function loadChatHistory(id, sock, io) {
   try {
     logger.info({ id }, 'Loading chat history...');
 
-    // Buscar conversas recentes diretamente
+    // Buscar todas as conversas (grupos e individuais)
     const chats = await sock.groupFetchAllParticipating().catch(() => ({}));
 
-    logger.info({ id, chatsCount: Object.keys(chats).length }, 'Chats found');
+    // Processar grupos
+    for (const groupId in chats) {
+      try {
+        // Buscar últimas mensagens do grupo
+        const messages = await sock.fetchMessagesFromWA(groupId, 20).catch(() => []);
 
-    io.emit('history-loaded', { id, count: Object.keys(chats).length });
+        if (messages && messages.length > 0) {
+          const formattedMessages = messages.map(msg => {
+            let text = '';
+            let messageType = 'text';
+
+            if (msg.message) {
+              if (msg.message.conversation) {
+                text = msg.message.conversation;
+              } else if (msg.message.extendedTextMessage) {
+                text = msg.message.extendedTextMessage.text;
+              } else if (msg.message.imageMessage) {
+                text = msg.message.imageMessage.caption || '📷 Imagem';
+                messageType = 'image';
+              } else if (msg.message.videoMessage) {
+                text = msg.message.videoMessage.caption || '🎥 Vídeo';
+                messageType = 'video';
+              } else if (msg.message.audioMessage) {
+                text = '🎵 Áudio';
+                messageType = 'audio';
+              } else {
+                text = '[Mídia]';
+              }
+            }
+
+            return {
+              key: msg.key,
+              messageType: messageType,
+              text: text,
+              from: msg.key.remoteJid,
+              fromMe: msg.key.fromMe,
+              timestamp: msg.messageTimestamp,
+              contactName: chats[groupId].subject || null,
+              isHistory: true
+            };
+          }).reverse();
+
+          io.emit('chat-history', {
+            id,
+            chatId: groupId,
+            messages: formattedMessages
+          });
+        }
+      } catch (err) {
+        logger.error({ err, groupId }, 'Error loading group history');
+      }
+    }
+
+    logger.info({ id, chatsCount: Object.keys(chats).length }, 'Chat history loaded');
   } catch (err) {
     logger.error({ err, id }, 'Error loading chat history');
   }
