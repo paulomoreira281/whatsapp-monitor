@@ -12,7 +12,9 @@
       "Bash(git add:*)",
       "Read(//c/Users/Usuario/Desktop/VS Code/**)",
       "Bash(git init:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(git push)"
     ],
     "deny": [],
     "ask": []

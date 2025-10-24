@@ -4,10 +4,10 @@ const socket = io();
 // Estado global
 const state = {
   accounts: {
-    1: { connected: false, conversations: {}, activeChat: null, user: null },
-    2: { connected: false, conversations: {}, activeChat: null, user: null },
-    3: { connected: false, conversations: {}, activeChat: null, user: null },
-    4: { connected: false, conversations: {}, activeChat: null, user: null }
+    1: { connected: false, conversations: {}, activeChat: null, user: null, unreadCount: 0 },
+    2: { connected: false, conversations: {}, activeChat: null, user: null, unreadCount: 0 },
+    3: { connected: false, conversations: {}, activeChat: null, user: null, unreadCount: 0 },
+    4: { connected: false, conversations: {}, activeChat: null, user: null, unreadCount: 0 }
   },
   currentAccount: 1
 };
@@ -221,6 +221,47 @@ socket.on('status', (data) => {
   }
 });
 
+// Receber histórico de conversas
+socket.on('chat-history', (data) => {
+  const { id, chatId, messages } = data;
+
+  if (!messages || messages.length === 0) return;
+
+  const phoneNumber = chatId.split('@')[0];
+  const account = state.accounts[id];
+
+  // Criar conversa se não existir
+  if (!account.conversations[phoneNumber]) {
+    const contactName = messages[0]?.contactName || null;
+
+    account.conversations[phoneNumber] = {
+      phone: phoneNumber,
+      name: contactName,
+      messages: [],
+      unreadCount: 0,
+      lastMessage: null,
+      lastTime: null
+    };
+
+    createConversationItem(id, phoneNumber, contactName);
+  }
+
+  // Adicionar mensagens do histórico
+  messages.forEach(msg => {
+    account.conversations[phoneNumber].messages.push(msg);
+  });
+
+  // Atualizar última mensagem
+  const lastMsg = messages[messages.length - 1];
+  account.conversations[phoneNumber].lastMessage = lastMsg.text;
+  account.conversations[phoneNumber].lastTime = lastMsg.timestamp;
+
+  // Atualizar lista de conversas
+  updateConversationItem(id, phoneNumber);
+
+  console.log(`Histórico carregado: ${phoneNumber} (${messages.length} mensagens)`);
+});
+
 socket.on('message', (data) => {
   const { id, messages } = data;
 
@@ -230,18 +271,23 @@ socket.on('message', (data) => {
 
     const phoneNumber = msg.from.split('@')[0];
     const account = state.accounts[id];
+    const contactName = msg.contactName || null;
 
     // Criar conversa se não existir
     if (!account.conversations[phoneNumber]) {
       account.conversations[phoneNumber] = {
         phone: phoneNumber,
+        name: contactName,
         messages: [],
         unreadCount: 0,
         lastMessage: null,
         lastTime: null
       };
 
-      createConversationItem(id, phoneNumber);
+      createConversationItem(id, phoneNumber, contactName);
+
+      // Incrementar contador de novas conversas
+      incrementUnreadBadge(id);
     }
 
     // Adicionar mensagem à conversa
@@ -249,9 +295,15 @@ socket.on('message', (data) => {
     account.conversations[phoneNumber].lastMessage = msg.text;
     account.conversations[phoneNumber].lastTime = msg.timestamp;
 
+    // Atualizar nome se vier do backend
+    if (contactName && !account.conversations[phoneNumber].name) {
+      account.conversations[phoneNumber].name = contactName;
+    }
+
     // Se não está com chat aberto, incrementar não lidas
     if (account.activeChat !== phoneNumber) {
       account.conversations[phoneNumber].unreadCount++;
+      incrementUnreadBadge(id);
     }
 
     // Atualizar lista de conversas
@@ -274,17 +326,20 @@ socket.on('message-error', (data) => {
 });
 
 // Criar item de conversa na sidebar
-function createConversationItem(sessionId, phoneNumber) {
+function createConversationItem(sessionId, phoneNumber, contactName = null) {
   const conversationsContainer = document.getElementById(`conversations-items-${sessionId}`);
   const formattedPhone = formatPhoneNumber(phoneNumber);
-  const avatar = getInitials(formattedPhone);
+
+  // Usar nome do contato se disponível, senão usar número formatado
+  const displayName = contactName || formattedPhone;
+  const avatar = getInitials(displayName);
 
   const conversationHTML = `
     <div class="conversation-item" id="conversation-${sessionId}-${phoneNumber}" data-phone="${phoneNumber}">
       <div class="conversation-avatar">${avatar}</div>
       <div class="conversation-content">
         <div class="conversation-header">
-          <span class="conversation-name">${formattedPhone}</span>
+          <span class="conversation-name" id="conv-name-${sessionId}-${phoneNumber}">${displayName}</span>
           <span class="conversation-time" id="conv-time-${sessionId}-${phoneNumber}"></span>
         </div>
         <div class="conversation-preview">
@@ -307,10 +362,16 @@ function createConversationItem(sessionId, phoneNumber) {
 function updateConversationItem(sessionId, phoneNumber) {
   const conversation = state.accounts[sessionId].conversations[phoneNumber];
 
+  const nameEl = document.getElementById(`conv-name-${sessionId}-${phoneNumber}`);
   const timeEl = document.getElementById(`conv-time-${sessionId}-${phoneNumber}`);
   const msgEl = document.getElementById(`conv-msg-${sessionId}-${phoneNumber}`);
   const unreadEl = document.getElementById(`conv-unread-${sessionId}-${phoneNumber}`);
   const itemEl = document.getElementById(`conversation-${sessionId}-${phoneNumber}`);
+
+  // Atualizar nome se disponível
+  if (nameEl && conversation.name) {
+    nameEl.textContent = conversation.name;
+  }
 
   if (timeEl) timeEl.textContent = formatTime(conversation.lastTime);
   if (msgEl) msgEl.textContent = truncateText(conversation.lastMessage, 40);
@@ -325,8 +386,10 @@ function updateConversationItem(sessionId, phoneNumber) {
   }
 
   // Mover para o topo
-  const parent = itemEl.parentNode;
-  parent.insertBefore(itemEl, parent.firstChild);
+  const parent = itemEl?.parentNode;
+  if (parent && itemEl) {
+    parent.insertBefore(itemEl, parent.firstChild);
+  }
 }
 
 // Atualizar preview da conversa após enviar
@@ -344,10 +407,15 @@ function openChat(sessionId, phoneNumber) {
   const account = state.accounts[sessionId];
   account.activeChat = phoneNumber;
 
+  const conversation = account.conversations[phoneNumber];
+
   // Zerar não lidas
-  if (account.conversations[phoneNumber]) {
-    account.conversations[phoneNumber].unreadCount = 0;
+  if (conversation) {
+    conversation.unreadCount = 0;
   }
+
+  // Atualizar badge da tab
+  updateAccountBadge(sessionId);
 
   // Atualizar conversação selecionada
   document.querySelectorAll(`#conversations-items-${sessionId} .conversation-item`).forEach(item => {
@@ -359,11 +427,11 @@ function openChat(sessionId, phoneNumber) {
   document.getElementById(`chat-placeholder-${sessionId}`).style.display = 'none';
   document.getElementById(`chat-active-${sessionId}`).style.display = 'flex';
 
-  // Atualizar header do chat
-  const formattedPhone = formatPhoneNumber(phoneNumber);
-  document.getElementById(`contact-name-${sessionId}`).textContent = formattedPhone;
+  // Atualizar header do chat com nome ou número
+  const displayName = conversation?.name || formatPhoneNumber(phoneNumber);
+  document.getElementById(`contact-name-${sessionId}`).textContent = displayName;
   document.getElementById(`contact-number-${sessionId}`).textContent = phoneNumber;
-  document.getElementById(`contact-avatar-${sessionId}`).textContent = getInitials(formattedPhone);
+  document.getElementById(`contact-avatar-${sessionId}`).textContent = getInitials(displayName);
 
   // Carregar mensagens
   loadChatMessages(sessionId, phoneNumber);
@@ -472,4 +540,52 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Incrementar badge de não lidas
+function incrementUnreadBadge(sessionId) {
+  const account = state.accounts[sessionId];
+
+  // Contar total de não lidas
+  let totalUnread = 0;
+  for (const phoneNumber in account.conversations) {
+    const conv = account.conversations[phoneNumber];
+    if (account.activeChat !== phoneNumber) {
+      totalUnread += conv.unreadCount || 0;
+    }
+  }
+
+  account.unreadCount = totalUnread;
+  updateAccountBadge(sessionId);
+}
+
+// Atualizar badge da tab
+function updateAccountBadge(sessionId) {
+  const account = state.accounts[sessionId];
+  const tab = document.querySelector(`.account-tab[data-account="${sessionId}"]`);
+
+  if (!tab) return;
+
+  // Remover badge existente
+  const existingBadge = tab.querySelector('.account-badge');
+  if (existingBadge) {
+    existingBadge.remove();
+  }
+
+  // Calcular total de não lidas
+  let totalUnread = 0;
+  for (const phoneNumber in account.conversations) {
+    const conv = account.conversations[phoneNumber];
+    if (account.activeChat !== phoneNumber) {
+      totalUnread += conv.unreadCount || 0;
+    }
+  }
+
+  // Adicionar badge se houver não lidas
+  if (totalUnread > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'account-badge';
+    badge.textContent = totalUnread > 99 ? '99+' : totalUnread;
+    tab.appendChild(badge);
+  }
 }
